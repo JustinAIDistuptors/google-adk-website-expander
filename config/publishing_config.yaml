@@ -1,0 +1,54 @@
+# Publishing configuration parameters
+
+# Website integration settings
+website:
+  base_url: "https://example.com"
+  api_endpoint: "https://example.com/api/content"
+  content_management_system: "wordpress"  # Options: wordpress, custom, static
+  api_auth_method: "oauth2"  # Options: basic, oauth2, api_key
+
+# URL structure
+url_structure:
+  pattern: "{service_slug}/{location_zip}"  # E.g., plumber/33442
+  service_slug_format: "lowercase-with-hyphens"
+  force_trailing_slash: true
+  include_state_code: false  # Whether to include state in URL
+
+# Publishing process
+publishing:
+  batch_size: 10  # Number of pages to publish in one batch
+  delay_between_batches_seconds: 60
+  max_retries: 3
+  verification_enabled: true  # Verify page published successfully
+  rollback_on_failure: true  # Unpublish if verification fails
+
+# Content moderation
+moderation:
+  enabled: true
+  min_quality_score: 0.8  # 0.0 to 1.0
+  check_plagiarism: true
+  reject_if_duplicate_content: true
+  sensitive_content_detection: true
+
+# Sitemap management
+sitemap:
+  auto_update: true
+  notify_search_engines: true
+  include_in_robots_txt: true
+  sitemap_path: "/sitemap.xml"
+  sitemap_index_path: "/sitemap_index.xml"
+
+# Post-publishing actions
+post_publishing:
+  ping_google: true
+  submit_to_search_console: true
+  create_internal_links: true
+  notify_admin_email: "admin@example.com"
+
+# Monitoring and analytics
+monitoring:
+  track_in_analytics: true
+  log_publishing_events: true
+  performance_monitoring_enabled: true
+  alert_on_failures: true
+  alert_threshold: 5  # Number of failures before alerting

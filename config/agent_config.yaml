@@ -1,0 +1,60 @@
+# Configuration for all agents in the system
+
+# Global settings
+global:
+  project_id: "your-gcp-project-id"
+  region: "us-central1"
+  max_retry_attempts: 3
+  retry_delay_seconds: 5
+  logging_level: "INFO"
+  memory_storage_path: "./ai_memory"
+
+# Model settings
+models:
+  default: "gemini-2.0-flash"
+  content_generation: "gemini-2.0-pro"
+  seo_research: "gemini-2.0-flash"
+  large_context: "gemini-2.0-pro"
+
+# Agent-specific settings
+agents:
+  orchestrator:
+    name: "orchestrator_agent"
+    description: "Manages the workflow and task delegation for page generation"
+    model: "${models.default}"
+    timeout_seconds: 300
+    max_tasks_per_batch: 10
+    concurrent_tasks: 5
+  
+  seo_research:
+    name: "seo_research_agent"
+    description: "Gathers keywords and competitive intelligence for target pages"
+    model: "${models.seo_research}"
+    timeout_seconds: 180
+    max_competitor_pages: 5
+    max_keywords_per_page: 20
+  
+  content_generator:
+    name: "content_generator_agent"
+    description: "Creates unique page content based on templates and SEO data"
+    model: "${models.content_generation}"
+    timeout_seconds: 240
+    min_word_count: 500
+    max_word_count: 1500
+    max_title_length: 60
+    max_meta_description_length: 155
+  
+  page_assembler:
+    name: "page_assembler_agent"
+    description: "Builds complete HTML pages with proper structure"
+    model: "${models.default}"
+    timeout_seconds: 120
+    template_directory: "./data/templates"
+  
+  publisher:
+    name: "publisher_agent"
+    description: "Integrates with your website to deploy pages"
+    model: "${models.default}"
+    timeout_seconds: 180
+    publish_batch_size: 5
+    dry_run: false  # Set to true to skip actual publishing

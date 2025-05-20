@@ -1,0 +1,64 @@
+# SEO configuration parameters
+
+# Target SEO metrics
+seo_targets:
+  min_keyword_density: 1.0  # Percentage
+  max_keyword_density: 3.0  # Percentage
+  min_word_count: 500
+  ideal_word_count: 1000
+  max_word_count: 1500
+  min_headings_count: 3
+  title_max_length: 60  # Characters
+  meta_description_min_length: 120  # Characters
+  meta_description_max_length: 155  # Characters
+
+# Content structure guidelines
+content_structure:
+  heading_hierarchy:
+    - h1: 1  # Exactly 1 H1
+    - h2: 2-5  # Between 2 and 5 H2s
+    - h3: 2-10  # Between 2 and 10 H3s
+  paragraph_guidelines:
+    min_paragraphs: 5
+    max_paragraphs: 20
+    ideal_paragraph_length: 3-5  # Sentences
+  include_sections:
+    - introduction
+    - main_services
+    - benefits
+    - local_relevance
+    - call_to_action
+
+# Location relevance parameters
+location_relevance:
+  include_city_name_min: 3  # Minimum times to mention city name
+  include_zip_code_min: 1  # Minimum times to mention zip code
+  local_landmarks_count: 2-4  # Number of local landmarks to mention
+  nearby_locations_count: 2-3  # Number of nearby locations to mention
+
+# Keyword strategies
+keyword_strategies:
+  primary_keyword_count: 1
+  secondary_keyword_count: 3-5
+  long_tail_keyword_count: 3-7
+  primary_keyword_placement:
+    - title
+    - h1
+    - first_paragraph
+    - url
+    - meta_description
+  lsi_keywords_count: 5-10  # Latent Semantic Indexing keywords
+
+# Schema markup templates
+schema_markup:
+  local_business:
+    enabled: true
+    include_address: true
+    include_hours: true
+    include_reviews: true
+  service:
+    enabled: true
+  faq:
+    enabled: true
+    min_questions: 3
+    max_questions: 7
