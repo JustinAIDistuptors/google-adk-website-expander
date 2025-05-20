@@ -1,0 +1,33 @@
+# Project Conventions for AI Agents
+
+## Naming Conventions
+- Class names: PascalCase (e.g., OrchestratorAgent)
+- Functions/methods: snake_case (e.g., process_location)
+- Variables: snake_case (e.g., service_type)
+- Constants: UPPER_SNAKE_CASE (e.g., MAX_REQUESTS_PER_MINUTE)
+- File names: snake_case (e.g., seo_research_agent.py)
+
+## Agent Documentation
+- Each agent should have a clear description of its purpose and function
+- Document the input and output formats for agent-to-agent communication
+- Include example prompts and expected responses
+
+## Data Storage Conventions
+- Location data format: {"zip": "33442", "city": "Deerfield Beach", "state": "FL", "lat": 26.3173, "lng": -80.0999}
+- Service data format: {"service_id": "plumber", "display_name": "Plumber", "keywords": ["emergency plumber", "plumbing repair"]}
+- Page data format: JSON with clear separation of content, metadata, and SEO elements
+
+## Agent Communication Protocol
+- Always use structured JSON for A2A communication
+- Include task_id, agent_name, timestamp in every communication
+- Log all inter-agent communications for debugging
+
+## Error Handling
+- Implement robust error handling in all agents
+- Use standardized error codes and messages
+- Implement retry logic with exponential backoff
+
+## Performance Considerations
+- Limit parallel requests to external APIs
+- Implement caching where appropriate
+- Monitor token usage for LLM-based agents
