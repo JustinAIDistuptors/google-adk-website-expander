@@ -8,15 +8,22 @@ gathering keywords and competitive intelligence for target pages.
 
 import os
 import json
+import yaml
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
 from pathlib import Path
+from datetime import datetime
 
 # Import base agent
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from ai_agents.shared.base_agent import BaseAgent
+
+# Import SEO research tools
+from ai_agents.seo_research.tools.serp_analyzer import create_serp_analysis_tool
+from ai_agents.seo_research.tools.keyword_generator import create_keyword_generation_tool
+from ai_agents.seo_research.tools.content_analyzer import create_content_analysis_tool
 
 # Import ADK components
 from google.adk.agents import Agent
@@ -45,6 +52,9 @@ class SeoResearchAgent(BaseAgent):
         
         # Load SEO parameters
         self.seo_params = self._load_seo_parameters()
+        
+        # Create output directory
+        os.makedirs("data/seo_research", exist_ok=True)
     
     def _load_seo_parameters(self) -> Dict[str, Any]:
         """
@@ -71,110 +81,6 @@ class SeoResearchAgent(BaseAgent):
                     'secondary_keyword_count': 3
                 }
             }
-    
-    def _create_serp_analysis_tool(self):
-        """
-        Create a tool for SERP analysis.
-        
-        Returns:
-            callable: SERP analysis tool function
-        """
-        def serp_analysis_tool(query: str, location: str = None) -> Dict[str, Any]:
-            """
-            Analyzes search engine result pages for the given query and location.
-            
-            Args:
-                query: Search query to analyze
-                location: Optional location to target (e.g., "33442")
-                
-            Returns:
-                dict: SERP analysis results including top ranking pages and keywords
-            """
-            # This is a mock implementation
-            # In a real implementation, this would call a SERP API or use a web search tool
-            
-            self.logger.info(f"SERP analysis for query: {query}, location: {location}")
-            
-            # Mock results
-            return {
-                "query": query,
-                "location": location,
-                "top_results": [
-                    {
-                        "title": f"Best {query} in {location or 'Your Area'} | Professional Services",
-                        "url": f"https://example.com/{query.lower().replace(' ', '-')}-{location or 'services'}",
-                        "description": f"Looking for professional {query} in {location or 'your area'}? Our experienced team provides top-rated services. Call today!",
-                        "position": 1
-                    },
-                    {
-                        "title": f"{location or 'Local'} {query} - 24/7 Emergency Service",
-                        "url": f"https://example.org/{query.lower().replace(' ', '-')}",
-                        "description": f"Fast & reliable {query} service in {location or 'the area'}. Licensed professionals, free estimates, and affordable rates.",
-                        "position": 2
-                    }
-                ],
-                "common_keywords": [
-                    f"{query} near me",
-                    f"best {query} in {location or 'city'}",
-                    f"emergency {query}",
-                    f"professional {query} service",
-                    f"affordable {query}"
-                ]
-            }
-        
-        return serp_analysis_tool
-    
-    def _create_keyword_generation_tool(self):
-        """
-        Create a tool for keyword generation.
-        
-        Returns:
-            callable: Keyword generation tool function
-        """
-        def keyword_generation_tool(service: str, location: str = None) -> Dict[str, Any]:
-            """
-            Generates keyword sets for the given service and location.
-            
-            Args:
-                service: Service type (e.g., "plumber")
-                location: Optional location to target (e.g., "33442")
-                
-            Returns:
-                dict: Generated keyword sets
-            """
-            # This is a mock implementation
-            # In a real implementation, this would use keyword research APIs
-            
-            self.logger.info(f"Keyword generation for service: {service}, location: {location}")
-            
-            # Get location data for context
-            location_data = self._get_location_data(location) if location else None
-            city = location_data.get('city', '') if location_data else ''
-            state = location_data.get('state', '') if location_data else ''
-            
-            # Mock results
-            return {
-                "service": service,
-                "location": location,
-                "primary_keywords": [
-                    f"{service} {location}" if location else service,
-                    f"{service} {city} {state}" if city and state else f"{service} near me"
-                ],
-                "secondary_keywords": [
-                    f"best {service} in {city}" if city else f"best {service}",
-                    f"professional {service} {location}" if location else f"professional {service}",
-                    f"licensed {service} {city}" if city else f"licensed {service}",
-                    f"emergency {service} service"
-                ],
-                "long_tail_keywords": [
-                    f"{service} service cost in {city}" if city else f"{service} service cost",
-                    f"24 hour {service} in {location}" if location else f"24 hour {service}",
-                    f"affordable {service} in {city} {state}" if city and state else f"affordable {service} near me",
-                    f"best rated {service} {city}" if city else f"best rated {service}"
-                ]
-            }
-        
-        return keyword_generation_tool
     
     def _get_location_data(self, zip_code: str) -> Dict[str, Any]:
         """
@@ -228,9 +134,9 @@ class SeoResearchAgent(BaseAgent):
         """
         # Create SEO research tools
         tools = [
-            self._create_serp_analysis_tool(),
-            self._create_keyword_generation_tool()
-            # Add more SEO tools as needed
+            create_serp_analysis_tool(),
+            create_keyword_generation_tool(),
+            create_content_analysis_tool()
         ]
         
         # Additional agent-specific instruction based on SEO parameters
@@ -238,16 +144,31 @@ class SeoResearchAgent(BaseAgent):
         instruction += """
         Your task is to conduct comprehensive SEO research for location-based service pages.
         For each task:
-        1. Analyze the service type and location to understand the target audience and intent
-        2. Generate primary, secondary, and long-tail keywords optimized for local search
-        3. Analyze top-ranking competitor pages to identify content patterns and keyword usage
-        4. Create a comprehensive SEO strategy that includes:
-           - Recommended primary and secondary keywords
-           - Title tag and meta description templates
-           - Content structure recommendations
-           - Local relevance factors to include
         
-        Ensure all recommendations are tailored to the specific service and location combination.
+        1. Analyze the service type and location to understand the target audience and intent.
+        
+        2. Use the keyword_generation_tool to generate primary, secondary, and long-tail keywords 
+           optimized for local search. Pay special attention to user intent categories (informational,
+           navigational, transactional, commercial).
+        
+        3. Use the serp_analysis_tool to analyze top-ranking competitor pages for the target keywords.
+           Extract insights about title formats, meta descriptions, and common content elements.
+        
+        4. Use the content_analysis_tool to get deeper insights into the content structure, headings,
+           and local relevance factors that contribute to high rankings.
+        
+        5. Create a comprehensive SEO strategy that includes:
+           - Recommended primary and secondary keywords with clear intent mapping
+           - Title tag and meta description templates optimized for CTR
+           - Content structure recommendations (headings, sections, word count)
+           - Local relevance factors to include for better local search visibility
+           - Schema markup recommendations for rich results
+        
+        Ensure all recommendations are tailored to the specific service and location combination,
+        focusing on local search intent for "near me" queries.
+        
+        Return your findings as a structured JSON object with clear sections for each aspect of the
+        SEO strategy. Include a natural language summary of your recommendations for the content team.
         """
         
         self.agent_config['instruction'] = instruction
@@ -283,11 +204,31 @@ class SeoResearchAgent(BaseAgent):
             service_keywords = service_data.get('keywords', [])
             
             # Prepare the message for the agent
+            prompt = f"Conduct comprehensive SEO research for {service_display} services in {city}, {state} (zip code: {zip_code}). "
+            prompt += f"Generate primary and secondary keywords, analyze competitors, and create a complete SEO strategy. "
+            prompt += f"Consider these service-specific keywords: {', '.join(service_keywords)}. "
+            prompt += f"Focus on local search intent for users looking for services 'near me'.\n\n"
+            
+            # Add specific tool usage instructions
+            prompt += "Follow these steps:\n"
+            prompt += "1. Use the keyword_generation_tool to generate keyword sets\n"
+            prompt += "2. Use the serp_analysis_tool to analyze search results for primary keywords\n"
+            prompt += "3. Use the content_analysis_tool to analyze content patterns from top ranking pages\n"
+            prompt += "4. Synthesize all data into a comprehensive SEO strategy\n\n"
+            
+            # Add format instructions
+            prompt += "Return your findings as a JSON object with these sections:\n"
+            prompt += "- keywords: Primary, secondary, and long-tail keywords\n"
+            prompt += "- serp_insights: Insights from search results analysis\n"
+            prompt += "- content_strategy: Recommendations for content structure\n"
+            prompt += "- metadata: Title and meta description templates\n"
+            prompt += "- local_relevance: How to optimize for local search\n"
+            prompt += "- schema_markup: Recommended structured data\n"
+            prompt += "- summary: Natural language summary of all findings"
+            
             content = Content(
                 role='user',
-                parts=[Part(text=f"Conduct SEO research for {service_display} services in {city}, {state} (zip code: {zip_code}). "
-                            f"Generate primary and secondary keywords, analyze competitors, and create a comprehensive SEO strategy. "
-                            f"Consider these service-specific keywords as a starting point: {', '.join(service_keywords)}.")]
+                parts=[Part(text=prompt)]
             )
             
             # Generate a unique session ID for this task
@@ -300,7 +241,8 @@ class SeoResearchAgent(BaseAgent):
                 "location": {
                     "city": city,
                     "state": state
-                }
+                },
+                "timestamp": datetime.now().isoformat()
             }
             
             # Process the task using the SEO Research Agent
@@ -309,6 +251,26 @@ class SeoResearchAgent(BaseAgent):
                 session_id=session_id,
                 new_message=content
             ):
+                # Process function calls (tool usage)
+                function_calls = event.get_function_calls()
+                if function_calls:
+                    # Log tool usage for debugging
+                    for function_call in function_calls:
+                        self.logger.info(f"Tool call: {function_call.name} with args: {function_call.args}")
+                
+                # Process function responses (tool results)
+                function_responses = event.get_function_responses()
+                if function_responses:
+                    # Record tool results for output
+                    for function_response in function_responses:
+                        tool_name = function_response.function_call_id.split('/')[-1]
+                        if 'keyword' in tool_name.lower():
+                            result["keyword_data"] = function_response.response
+                        elif 'serp' in tool_name.lower():
+                            result["serp_data"] = function_response.response
+                        elif 'content' in tool_name.lower():
+                            result["content_data"] = function_response.response
+                
                 # Check for the final response
                 if event.is_final_response() and event.content and event.content.parts:
                     # Try to parse the structured data from the response
@@ -320,14 +282,9 @@ class SeoResearchAgent(BaseAgent):
                         
                         if json_match:
                             seo_data = json.loads(json_match.group(1))
-                            result.update(seo_data)
+                            result["seo_strategy"] = seo_data
                         else:
                             # Process unstructured text response
-                            result["keywords"] = {
-                                "primary": [],
-                                "secondary": [],
-                                "long_tail": []
-                            }
                             result["seo_recommendations"] = response_text
                     except Exception as e:
                         self.logger.error(f"Failed to parse SEO results: {str(e)}")
