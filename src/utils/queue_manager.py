@@ -345,43 +345,27 @@ class QueueManager:
                 conn.close()
         
         # Ensure all PythonTaskStatus values are in stats, with 0 if not present
-        for status_enum_member in PythonTaskStatus:
-            if status_enum_member.value not in stats and PYTHON_TO_DB_STATUS_MAP.get(status_enum_member.value, status_enum_member.value) not in stats :
-                 # check if the direct value or mapped value is missing
-                actual_key_to_check = status_enum_member.value
-                # if the python status value is a key in DB_TO_PYTHON_STATUS_MAP, it means it was a DB value that got mapped
-                # so we look for its original python value.
-                # This logic is a bit convoluted due to the bidirectional mapping.
-                # Simpler: iterate through DB statuses from the query, map them to Python status values for the dict keys.
-                # Then, ensure all PythonTaskStatus enum values are keys in the final stats dict.
-                
-                # The current logic for stats keys is:
-                # DB status -> mapped python status (if different) OR original DB status
-                # This means keys in `stats` could be "pending", "seo_research_complete", etc.
-                # We want the keys to be PythonTaskStatus values like "pending", "seo_complete"
-                
-                # Rebuilding stats dictionary with PythonTaskStatus values as keys
-                final_stats = {py_status.value: 0 for py_status in PythonTaskStatus}
-                for db_stat_key, count in stats.items():
-                    python_equivalent_status_str = DB_TO_PYTHON_STATUS_MAP.get(db_stat_key, db_stat_key)
-                    try:
-                         # Find the PythonTaskStatus member that corresponds to this string
-                        matching_py_enum = PythonTaskStatus(python_equivalent_status_str)
-                        final_stats[matching_py_enum.value] = count
-                    except ValueError:
-                        # This can happen if a status exists in DB but not in PythonTaskStatus enum
-                        # (should not happen with current maps, but good for robustness)
-                        logger.warning(f"DB status '{db_stat_key}' has no direct PythonTaskStatus enum value. Storing with original key.")
-                        final_stats[db_stat_key] = count # Store with original DB key if no match
-
-                # Fill any missing Python statuses with 0
-                for py_status_member in PythonTaskStatus:
-                    if py_status_member.value not in final_stats:
-                        final_stats[py_status_member.value] = 0
-                
-                return final_stats # Return the re-keyed stats
+        # This loop and the logic within it correctly rebuilds 'final_stats'
+        # It should be outside the try-except-finally for DB ops, operating on 'stats' dict.
         
-        return stats # Fallback, though the above block should always return.
+        final_stats = {py_status.value: 0 for py_status in PythonTaskStatus}
+        for db_stat_key, count in stats.items(): # Iterate over what was actually fetched
+            python_equivalent_status_str = DB_TO_PYTHON_STATUS_MAP.get(db_stat_key, db_stat_key)
+            try:
+                matching_py_enum = PythonTaskStatus(python_equivalent_status_str)
+                final_stats[matching_py_enum.value] = count
+            except ValueError:
+                logger.warning(f"DB status '{db_stat_key}' (mapped to '{python_equivalent_status_str}') has no PythonTaskStatus enum value. Storing with original key if it's a direct python value, else as raw DB key.")
+                # If python_equivalent_status_str is already a value in PythonTaskStatus, it's fine.
+                # Otherwise, store with the key that came from DB if it's not already handled.
+                if python_equivalent_status_str not in final_stats: # Avoid overwriting if it matched a Python enum value
+                    final_stats[db_stat_key] = count # Store with original DB key
+        
+        # The loop for status_enum_member was to ensure all PythonTaskStatus keys exist.
+        # The above logic correctly maps DB keys to Python enum values.
+        # The final_stats dictionary is initialized with all PythonTaskStatus values set to 0.
+        # So, any status not present in the DB query result will remain 0.
+        return final_stats
 
     # save_queue is no longer needed as operations are transactional.
     # load_queue is conceptually replaced by get_tasks_by_status or get_pending_tasks.
@@ -389,62 +373,20 @@ class QueueManager:
 # Example usage (for testing purposes, typically not here)
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
+    logger.info("QueueManager script executed directly (minimal main block).")
+    # Intentionally keeping it simple to avoid syntax issues.
+    # Original example code has been removed/simplified to fix a suspected EOF syntax error.
     manager = QueueManager()
+    
+    # Basic test: Get queue stats
+    stats = manager.get_queue_stats()
+    logger.info(f"Example Queue stats: {stats}")
 
-    # Test connection
+    # Basic test: Test connection directly
     db_conn = get_db_connection()
     if db_conn:
+        logger.info("Direct DB connection test successful in main.")
         db_conn.close()
-        logger.info("DB connection test successful in main.")
-
-        # Example: Add a task
-        # Note: zip_code and published_url are used for DB fields
-        #       status should be a PythonTaskStatus enum member
-        # task_to_add_data = {
-        #     "task_id": "test_service_12345_002",
-        #     "service_id": "test_service",
-        #     "zip_code": "12345", # DB field name
-        #     "city": "Testville",
-        #     "state": "TS",
-        #     "status": PythonTaskStatus.PENDING # Use the enum
-        # }
-        # new_task = manager.add_task(task_to_add_data)
-        # if new_task:
-        #     logger.info(f"Added task: {new_task.model_dump_json(indent=2)}")
-
-        #     # Example: Get task by ID
-        #     retrieved_task = manager.get_task_by_id(new_task.task_id)
-        #     if retrieved_task:
-        #         logger.info(f"Retrieved task by ID: {retrieved_task.model_dump_json(indent=2)}")
-
-        #     # Example: Get pending tasks
-        #     pending_tasks = manager.get_pending_tasks(limit=5)
-        #     logger.info(f"Pending tasks: {[t.task_id for t in pending_tasks]}")
-
-        #     if pending_tasks:
-        #         # Example: Mark tasks in progress
-        #         # Use the actual Task objects returned by get_pending_tasks
-        #         updated_tasks_in_progress = manager.mark_tasks_in_progress(pending_tasks[:1]) # Mark first one
-        #         logger.info(f"Marked in progress: {[t.task_id for t in updated_tasks_in_progress]}")
-            
-        #         # Example: Update task status to SEO_COMPLETE (which maps to seo_research_complete in DB)
-        #         if updated_tasks_in_progress:
-        #             task_to_update = updated_tasks_in_progress[0]
-        #             updated_seo_task = manager.update_task_status(
-        #                 task_to_update.task_id, 
-        #                 PythonTaskStatus.SEO_COMPLETE,
-        #                 url="http://example.com/published/page"
-        #             )
-        #             if updated_seo_task:
-        #                 logger.info(f"Updated to SEO_COMPLETE: {updated_seo_task.model_dump_json(indent=2)}")
-        #                 logger.info(f"Note: Status in Python obj is {updated_seo_task.status.value}, which should be 'seo_complete'")
-
-
-        # Example: Get queue stats
-        stats = manager.get_queue_stats()
-        logger.info(f"Queue stats: {stats}")
-
     else:
-        logger.error("Failed to connect to DB in main example. Halting tests.")
-
+        logger.error("Direct DB connection test failed in main.")
 ```
