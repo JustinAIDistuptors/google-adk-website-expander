@@ -4,19 +4,22 @@ SEO Research Agent for the Website Expansion Framework.
 
 This module provides the SEO Research Agent implementation, responsible for
 gathering keywords and competitive intelligence for target pages.
+It now uses a PostgreSQL database for its data operations.
 """
 
-import os
-import json
+import json # For JSONB serialization
 import yaml
 import asyncio
 import logging
 from typing import Dict, Any, List, Optional
-from pathlib import Path
 from datetime import datetime
+
+import psycopg2
+from psycopg2 import extras # For dict cursor
 
 # Import base agent
 import sys
+import os # Keep os for sys.path manipulation for now
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from ai_agents.shared.base_agent import BaseAgent
 
@@ -29,288 +32,256 @@ from ai_agents.seo_research.tools.content_analyzer import create_content_analysi
 from google.adk.agents import Agent
 from google.genai.types import Content, Part
 
+# Database connection utility & Task model
+from src.utils.queue_manager import get_db_connection
+from src.models.task import Task
+
 logger = logging.getLogger(__name__)
 
 class SeoResearchAgent(BaseAgent):
     """
     Agent responsible for SEO research and keyword analysis.
-    
-    The SEO Research Agent analyzes competitor pages, identifies keywords and semantic terms,
-    and builds a comprehensive SEO strategy for each target page.
+    Uses PostgreSQL for data storage and retrieval.
     """
     
     def __init__(self, config_path: str = "config/agent_config.yaml"):
         """
         Initialize the SEO Research Agent.
-        
-        Args:
-            config_path: Path to the agent configuration file
         """
         super().__init__("seo_research", config_path)
         self.max_competitor_pages = self.agent_config.get('max_competitor_pages', 5)
         self.max_keywords_per_page = self.agent_config.get('max_keywords_per_page', 20)
-        
-        # Load SEO parameters
         self.seo_params = self._load_seo_parameters()
-        
-        # Create output directory
-        os.makedirs("data/seo_research", exist_ok=True)
+        # Removed: os.makedirs("data/seo_research", exist_ok=True)
     
     def _load_seo_parameters(self) -> Dict[str, Any]:
-        """
-        Load SEO parameters from configuration.
-        
-        Returns:
-            dict: SEO parameters
-        """
+        """Load SEO parameters from configuration."""
         try:
             with open("config/seo_parameters.yaml", 'r') as f:
                 return yaml.safe_load(f)
         except Exception as e:
             logger.error(f"Failed to load SEO parameters: {str(e)}")
-            # Return default SEO parameters
-            return {
-                'seo_targets': {
-                    'min_keyword_density': 1.0,
-                    'max_keyword_density': 3.0,
-                    'title_max_length': 60,
-                    'meta_description_max_length': 155
-                },
-                'keyword_strategies': {
-                    'primary_keyword_count': 1,
-                    'secondary_keyword_count': 3
-                }
+            return { # Minimal default
+                'seo_targets': {'min_keyword_density': 1.0},
+                'keyword_strategies': {'primary_keyword_count': 1}
             }
     
-    def _get_location_data(self, zip_code: str) -> Dict[str, Any]:
-        """
-        Get location data for a zip code.
-        
-        Args:
-            zip_code: The zip code to look up
-            
-        Returns:
-            dict: Location data (city, state, etc.)
-        """
+    def _get_location_data(self, zip_code: str) -> Optional[Dict[str, Any]]:
+        """Get location data for a zip code from the 'locations' table."""
+        sql = "SELECT city, state, latitude, longitude FROM locations WHERE zip_code = %s;"
         try:
-            with open("data/locations/locations.json", 'r') as f:
-                locations = json.load(f)
-                
-                for location in locations:
-                    if location.get('zip') == zip_code:
-                        return location
-                
-                return {}
+            with get_db_connection() as conn:
+                if conn is None:
+                    logger.error(f"Failed to get DB connection for location data (zip {zip_code}).")
+                    return None
+                with conn.cursor(cursor_factory=extras.DictCursor) as cur:
+                    cur.execute(sql, (zip_code,))
+                    row = cur.fetchone()
+                    if row:
+                        logger.info(f"Location data for zip {zip_code} loaded successfully.")
+                        return dict(row)
+                    else:
+                        logger.warning(f"Location data not found for zip code {zip_code}.")
+                        return None
+        except psycopg2.Error as e:
+            logger.error(f"DB error loading location data for {zip_code}: {e}")
+            return None
         except Exception as e:
-            self.logger.error(f"Failed to get location data for {zip_code}: {str(e)}")
-            return {}
-    
-    def _get_service_data(self, service_id: str) -> Dict[str, Any]:
-        """
-        Get service data for a service ID.
-        
-        Args:
-            service_id: The service ID to look up
-            
-        Returns:
-            dict: Service data
-        """
+            logger.error(f"Unexpected error loading location data for {zip_code}: {e}")
+            return None
+
+    def _get_service_data(self, service_id: str) -> Optional[Dict[str, Any]]:
+        """Get service data for a service ID from the 'services' table."""
+        sql = "SELECT display_name, description, keywords FROM services WHERE service_id = %s;"
         try:
-            with open("data/services/services.json", 'r') as f:
-                services = json.load(f)
-                
-                for service in services:
-                    if service.get('service_id') == service_id:
-                        return service
-                
-                return {}
+            with get_db_connection() as conn:
+                if conn is None:
+                    logger.error(f"Failed to get DB connection for service data ({service_id}).")
+                    return None
+                with conn.cursor(cursor_factory=extras.DictCursor) as cur:
+                    cur.execute(sql, (service_id,))
+                    row = cur.fetchone()
+                    if row:
+                        logger.info(f"Service data for {service_id} loaded successfully.")
+                        return dict(row)
+                    else:
+                        logger.warning(f"Service data not found for service ID {service_id}.")
+                        return None
+        except psycopg2.Error as e:
+            logger.error(f"DB error loading service data for {service_id}: {e}")
+            return None
         except Exception as e:
-            self.logger.error(f"Failed to get service data for {service_id}: {str(e)}")
-            return {}
-    
+            logger.error(f"Unexpected error loading service data for {service_id}: {e}")
+            return None
+
+    def _save_seo_research_data(self, task_id: str, primary_keywords: List[str], 
+                                secondary_keywords: List[str], competitor_analysis: Dict[str, Any], 
+                                seo_recommendations: str) -> bool:
+        """Saves the SEO research data to the 'seo_research_data' table."""
+        sql = """
+            INSERT INTO seo_research_data 
+                (task_id, primary_keywords, secondary_keywords, competitor_analysis, seo_recommendations, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (task_id) DO UPDATE SET
+                primary_keywords = EXCLUDED.primary_keywords,
+                secondary_keywords = EXCLUDED.secondary_keywords,
+                competitor_analysis = EXCLUDED.competitor_analysis,
+                seo_recommendations = EXCLUDED.seo_recommendations,
+                updated_at = EXCLUDED.updated_at;
+        """
+        current_time = datetime.now()
+        try:
+            with get_db_connection() as conn:
+                if conn is None:
+                    logger.error(f"Failed to get DB connection for saving SEO data (task {task_id}).")
+                    return False
+                with conn.cursor() as cur:
+                    json_competitor_analysis = json.dumps(competitor_analysis)
+                    cur.execute(sql, (
+                        task_id, primary_keywords, secondary_keywords, 
+                        json_competitor_analysis, seo_recommendations, 
+                        current_time, current_time
+                    ))
+                    conn.commit()
+                    logger.info(f"SEO research data for task {task_id} saved to DB.")
+                    return True
+        except psycopg2.Error as e:
+            logger.error(f"DB error saving SEO data for task {task_id}: {e}")
+            if conn: conn.rollback()
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error saving SEO data for task {task_id}: {e}")
+            if conn: conn.rollback()
+            return False
+
     def initialize_agent(self):
-        """
-        Initialize the SEO Research Agent with necessary tools.
-        """
-        # Create SEO research tools
+        """Initialize the SEO Research Agent with necessary tools."""
         tools = [
             create_serp_analysis_tool(),
             create_keyword_generation_tool(),
             create_content_analysis_tool()
         ]
-        
-        # Additional agent-specific instruction based on SEO parameters
         instruction = self.agent_config.get('instruction', '')
         instruction += """
         Your task is to conduct comprehensive SEO research for location-based service pages.
         For each task:
-        
         1. Analyze the service type and location to understand the target audience and intent.
-        
-        2. Use the keyword_generation_tool to generate primary, secondary, and long-tail keywords 
-           optimized for local search. Pay special attention to user intent categories (informational,
-           navigational, transactional, commercial).
-        
-        3. Use the serp_analysis_tool to analyze top-ranking competitor pages for the target keywords.
-           Extract insights about title formats, meta descriptions, and common content elements.
-        
-        4. Use the content_analysis_tool to get deeper insights into the content structure, headings,
-           and local relevance factors that contribute to high rankings.
-        
-        5. Create a comprehensive SEO strategy that includes:
-           - Recommended primary and secondary keywords with clear intent mapping
-           - Title tag and meta description templates optimized for CTR
-           - Content structure recommendations (headings, sections, word count)
-           - Local relevance factors to include for better local search visibility
-           - Schema markup recommendations for rich results
-        
-        Ensure all recommendations are tailored to the specific service and location combination,
-        focusing on local search intent for "near me" queries.
-        
-        Return your findings as a structured JSON object with clear sections for each aspect of the
-        SEO strategy. Include a natural language summary of your recommendations for the content team.
+        2. Use the keyword_generation_tool to generate primary, secondary, and long-tail keywords.
+        3. Use the serp_analysis_tool to analyze top-ranking competitor pages.
+        4. Use the content_analysis_tool to get deeper insights into content structure.
+        5. Create a comprehensive SEO strategy.
+        Return your findings as a structured JSON object with these sections:
+           - keywords: {"primary": ["kw1", "kw2"], "secondary": ["kw3", "kw4"], "long_tail": ["ltkw1"]}
+           - competitor_analysis: {"top_competitors": [{"url": "...", "title": "...", "strengths": ["..."]}, ...], "common_themes": ["..."]}
+           - content_strategy: {"recommended_headings": ["H1", "H2: Topic A", "H2: Topic B"], "word_count_target": 750, "internal_linking_suggestions": ["link to X page"]}
+           - metadata_templates: {"title": "Best {service} in {city} | CompanyName", "meta_description": "Get expert {service} in {city}, {state}. Call CompanyName today for a free quote!"}
+           - local_relevance_factors: ["mention local landmarks", "include city/state in H1/meta", "NAP consistency"]
+           - schema_markup_recommendations: ["LocalBusiness", "FAQPage", "Service"]
+           - seo_summary_text: "A natural language summary of all findings and recommendations."
         """
-        
         self.agent_config['instruction'] = instruction
-        
-        # Initialize the agent with the tools
         super().initialize_agent(tools=tools)
     
-    async def process_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_task(self, task: Task) -> Dict[str, Any]:
         """
-        Process a single SEO research task.
-        
-        Args:
-            task: The task to process, including service and location
-            
-        Returns:
-            dict: SEO research results
+        Process a single SEO research task using a Task Pydantic model.
         """
-        task_id = task.get('task_id')
-        service_id = task.get('service_id')
-        zip_code = task.get('zip')
+        task_id = task.task_id
+        service_id = task.service_id
+        zip_code = task.zip # From Task model
         
         self.logger.info(f"Processing SEO research for task {task_id}: {service_id} + {zip_code}")
         self.start_task_timer()
+
+        process_result = {
+            "task_id": task_id,
+            "status": "error", # Default to error
+            "message": ""
+        }
         
         try:
-            # Get additional context data
             location_data = self._get_location_data(zip_code)
             service_data = self._get_service_data(service_id)
             
-            city = location_data.get('city', '')
-            state = location_data.get('state', '')
-            service_display = service_data.get('display_name', service_id)
-            service_keywords = service_data.get('keywords', [])
+            city = task.city or (location_data.get('city', '') if location_data else '')
+            state = task.state or (location_data.get('state', '') if location_data else '')
+            service_display = service_data.get('display_name', service_id) if service_data else service_id
+            service_base_keywords = service_data.get('keywords', []) if service_data else []
             
-            # Prepare the message for the agent
+            if not city or not state:
+                logger.warning(f"City/State information missing for task {task_id}. SEO research might be less effective.")
+            
             prompt = f"Conduct comprehensive SEO research for {service_display} services in {city}, {state} (zip code: {zip_code}). "
-            prompt += f"Generate primary and secondary keywords, analyze competitors, and create a complete SEO strategy. "
-            prompt += f"Consider these service-specific keywords: {', '.join(service_keywords)}. "
-            prompt += f"Focus on local search intent for users looking for services 'near me'.\n\n"
+            prompt += f"Base service keywords: {', '.join(service_base_keywords) if service_base_keywords else 'N/A'}. "
+            prompt += "Focus on local search intent. Follow the structured JSON output format specified in your instructions."
             
-            # Add specific tool usage instructions
-            prompt += "Follow these steps:\n"
-            prompt += "1. Use the keyword_generation_tool to generate keyword sets\n"
-            prompt += "2. Use the serp_analysis_tool to analyze search results for primary keywords\n"
-            prompt += "3. Use the content_analysis_tool to analyze content patterns from top ranking pages\n"
-            prompt += "4. Synthesize all data into a comprehensive SEO strategy\n\n"
-            
-            # Add format instructions
-            prompt += "Return your findings as a JSON object with these sections:\n"
-            prompt += "- keywords: Primary, secondary, and long-tail keywords\n"
-            prompt += "- serp_insights: Insights from search results analysis\n"
-            prompt += "- content_strategy: Recommendations for content structure\n"
-            prompt += "- metadata: Title and meta description templates\n"
-            prompt += "- local_relevance: How to optimize for local search\n"
-            prompt += "- schema_markup: Recommended structured data\n"
-            prompt += "- summary: Natural language summary of all findings"
-            
-            content = Content(
-                role='user',
-                parts=[Part(text=prompt)]
-            )
-            
-            # Generate a unique session ID for this task
+            llm_input_content = Content(role='user', parts=[Part(text=prompt)])
             session_id = f"seo_{task_id}"
-            user_id = "website_expander"
+            user_id = "website_expander_seo_agent"
             
-            result = {
-                "service_id": service_id,
-                "zip_code": zip_code,
-                "location": {
-                    "city": city,
-                    "state": state
-                },
-                "timestamp": datetime.now().isoformat()
-            }
-            
-            # Process the task using the SEO Research Agent
+            llm_response_json: Optional[Dict[str, Any]] = None
+            raw_response_text = ""
+
             async for event in self.runner.run_async(
-                user_id=user_id,
-                session_id=session_id,
-                new_message=content
+                user_id=user_id, session_id=session_id, new_message=llm_input_content
             ):
-                # Process function calls (tool usage)
-                function_calls = event.get_function_calls()
-                if function_calls:
-                    # Log tool usage for debugging
-                    for function_call in function_calls:
-                        self.logger.info(f"Tool call: {function_call.name} with args: {function_call.args}")
-                
-                # Process function responses (tool results)
-                function_responses = event.get_function_responses()
-                if function_responses:
-                    # Record tool results for output
-                    for function_response in function_responses:
-                        tool_name = function_response.function_call_id.split('/')[-1]
-                        if 'keyword' in tool_name.lower():
-                            result["keyword_data"] = function_response.response
-                        elif 'serp' in tool_name.lower():
-                            result["serp_data"] = function_response.response
-                        elif 'content' in tool_name.lower():
-                            result["content_data"] = function_response.response
-                
-                # Check for the final response
+                # Tool calls and responses are handled by the ADK runner and tools themselves.
+                # We are interested in the final aggregated response from the LLM.
                 if event.is_final_response() and event.content and event.content.parts:
-                    # Try to parse the structured data from the response
-                    response_text = event.content.parts[0].text
+                    raw_response_text = event.content.parts[0].text
                     try:
-                        # Extract JSON data if present
                         import re
-                        json_match = re.search(r'```json\n(.+?)\n```', response_text, re.DOTALL)
-                        
+                        json_match = re.search(r'```json\n(.+?)\n```', raw_response_text, re.DOTALL)
                         if json_match:
-                            seo_data = json.loads(json_match.group(1))
-                            result["seo_strategy"] = seo_data
+                            llm_response_json = json.loads(json_match.group(1))
                         else:
-                            # Process unstructured text response
-                            result["seo_recommendations"] = response_text
-                    except Exception as e:
-                        self.logger.error(f"Failed to parse SEO results: {str(e)}")
-                        result["seo_recommendations"] = response_text
+                            # Try to parse the whole string if no markdown block found
+                            llm_response_json = json.loads(raw_response_text) 
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse JSON response for task {task_id}: {e}. Raw: {raw_response_text[:300]}...")
+                        # Store raw text for manual review if parsing fails
+                        llm_response_json = {"parsing_error": str(e), "raw_seo_recommendations": raw_response_text}
+                    break 
             
+            if llm_response_json:
+                # Extract data for DB insertion based on expected structure
+                keywords_data = llm_response_json.get('keywords', {})
+                primary_keywords = keywords_data.get('primary', [])
+                secondary_keywords = keywords_data.get('secondary', [])
+                # long_tail_keywords = keywords_data.get('long_tail', []) # Not in seo_research_data table schema directly
+
+                competitor_analysis_data = llm_response_json.get('competitor_analysis', {})
+                
+                # seo_summary_text is a good candidate for seo_recommendations field
+                seo_recommendations_text = llm_response_json.get('seo_summary_text', 
+                                           llm_response_json.get('summary', raw_response_text if "parsing_error" in llm_response_json else "No summary provided."))
+
+                if not isinstance(primary_keywords, list): primary_keywords = [str(primary_keywords)]
+                if not isinstance(secondary_keywords, list): secondary_keywords = [str(secondary_keywords)]
+                if not isinstance(competitor_analysis_data, dict): competitor_analysis_data = {"raw": str(competitor_analysis_data)}
+                if not isinstance(seo_recommendations_text, str): seo_recommendations_text = str(seo_recommendations_text)
+
+
+                if self._save_seo_research_data(task_id, primary_keywords, secondary_keywords, 
+                                                competitor_analysis_data, seo_recommendations_text):
+                    process_result["status"] = "completed"
+                    process_result["message"] = "SEO research completed and data saved to DB."
+                else:
+                    process_result["message"] = "SEO research completed but failed to save data to DB."
+                    # status remains 'error'
+            else:
+                process_result["message"] = f"LLM did not return usable SEO data for task {task_id}. Raw response: {raw_response_text[:300]}..."
+                # status remains 'error'
+
             elapsed = self.end_task_timer()
-            self.log_task_completion(task_id, "completed", elapsed, result)
-            
-            # Save the SEO research results
-            output_dir = f"data/seo_research"
-            os.makedirs(output_dir, exist_ok=True)
-            with open(f"{output_dir}/{task_id}.json", 'w') as f:
-                json.dump(result, f, indent=2)
-            
-            return result
+            self.log_task_completion(task_id, process_result["status"], elapsed, process_result)
+            return process_result
             
         except Exception as e:
             elapsed = self.end_task_timer()
-            self.logger.error(f"Error processing SEO research for task {task_id}: {str(e)}")
-            
-            result = {
-                "service_id": service_id,
-                "zip_code": zip_code,
-                "status": "error",
-                "error": str(e)
-            }
-            
-            self.log_task_completion(task_id, "error", elapsed, result)
-            return result
+            logger.error(f"Critical error processing SEO research for task {task_id}: {str(e)}", exc_info=True)
+            process_result["status"] = "error"
+            process_result["message"] = str(e)
+            self.log_task_completion(task_id, "error", elapsed, process_result)
+            return process_result
+```

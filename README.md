@@ -44,6 +44,48 @@ cp .env.example .env
 # Edit .env with your API keys and configuration
 ```
 
+### Database Setup
+
+This project now uses a PostgreSQL database to manage tasks, content, and other operational data, replacing the previous file-based system.
+
+#### 1. Prerequisites
+
+*   Ensure you have a running PostgreSQL instance. You can use a local installation, a Docker container, or a cloud service like Supabase (which provides a PostgreSQL backend).
+*   The `psycopg2-binary` Python package is required (already listed in `requirements.txt`).
+
+#### 2. Environment Variables for Database Connection
+
+The application connects to the PostgreSQL database using environment variables. You need to set these variables in your environment (e.g., in a `.env` file at the root of the project, which is loaded by `python-dotenv`).
+
+Create a `.env` file with the following content, replacing the placeholder values with your actual database credentials:
+
+```env
+DB_HOST=your_db_host
+DB_PORT=your_db_port (typically 5432 for PostgreSQL)
+DB_NAME=your_db_name
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+```
+
+#### 3. Database Schema Initialization
+
+The required database schema (tables, enums, functions) is defined in the `schema.sql` file in the root of this repository.
+
+To initialize your database:
+1.  Ensure your database (e.g., `your_db_name`) has been created in your PostgreSQL instance.
+2.  Connect to your PostgreSQL instance using a tool like `psql` or pgAdmin.
+3.  Execute the `schema.sql` script against your database.
+
+   Example using `psql`:
+   ```bash
+   psql -U your_db_user -d your_db_name -f schema.sql
+   ```
+   (You might be prompted for `your_db_password`).
+
+#### 4. Data Initialization (Updated `scripts/init_data.py`)
+
+The `scripts/init_data.py` script will be updated to populate initial data (like services, locations, templates if they are moved to the DB) into the new database structure. Instructions for running this script will be updated here once the script itself is refactored.
+
 ## Usage
 
 ```bash
