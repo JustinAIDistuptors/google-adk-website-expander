@@ -327,44 +327,45 @@ class QueueManager:
 
         # Query to count tasks by status
         sql = "SELECT status, COUNT(*) as count FROM tasks GROUP BY status;"
-        stats: Dict[str, int] = {}
+        stats: Dict[str, int] = {} # This will store DB status strings as keys initially
         try:
             with conn.cursor(cursor_factory=extras.DictCursor) as cur:
                 cur.execute(sql)
                 rows = cur.fetchall()
                 for row in rows:
-                    # Map DB status back to Python status string for consistency in stats keys if desired
-                    db_status = row['status']
-                    python_status_key = DB_TO_PYTHON_STATUS_MAP.get(db_status, db_status)
-                    stats[python_status_key] = row['count']
-            logger.info(f"Retrieved queue stats: {stats}")
+                    stats[row['status']] = row['count'] # Use direct DB status string as key
+            logger.info(f"Retrieved queue stats (raw from DB): {stats}")
         except psycopg2.Error as e:
             logger.error(f"Error retrieving queue stats: {e}")
+            # In case of DB error, 'stats' might be empty or partially filled, 
+            # 'final_stats' will then be all zeros, which is acceptable.
         finally:
             if conn:
                 conn.close()
         
-        # Ensure all PythonTaskStatus values are in stats, with 0 if not present
-        # This loop and the logic within it correctly rebuilds 'final_stats'
-        # It should be outside the try-except-finally for DB ops, operating on 'stats' dict.
-        
+        # Convert keys in 'stats' from DB status strings to PythonTaskStatus.value strings
         final_stats = {py_status.value: 0 for py_status in PythonTaskStatus}
-        for db_stat_key, count in stats.items(): # Iterate over what was actually fetched
+        for db_stat_key, count in stats.items():
+            # Map the DB status (db_stat_key) to its Python enum string equivalent
             python_equivalent_status_str = DB_TO_PYTHON_STATUS_MAP.get(db_stat_key, db_stat_key)
+            
             try:
+                # Check if this string is a valid PythonTaskStatus value
                 matching_py_enum = PythonTaskStatus(python_equivalent_status_str)
                 final_stats[matching_py_enum.value] = count
             except ValueError:
-                logger.warning(f"DB status '{db_stat_key}' (mapped to '{python_equivalent_status_str}') has no PythonTaskStatus enum value. Storing with original key if it's a direct python value, else as raw DB key.")
-                # If python_equivalent_status_str is already a value in PythonTaskStatus, it's fine.
-                # Otherwise, store with the key that came from DB if it's not already handled.
-                if python_equivalent_status_str not in final_stats: # Avoid overwriting if it matched a Python enum value
-                    final_stats[db_stat_key] = count # Store with original DB key
+                # This case means python_equivalent_status_str is not a value in PythonTaskStatus enum
+                # This could happen if DB_TO_PYTHON_STATUS_MAP doesn't cover all DB statuses
+                # or if a status exists in DB that has no Python equivalent defined.
+                logger.warning(f"DB status '{db_stat_key}' (mapped to '{python_equivalent_status_str}') "
+                               f"is not a valid PythonTaskStatus value. It will be ignored in final stats "
+                               f"unless it directly matches a PythonTaskStatus value.")
+                # If db_stat_key itself is a valid PythonTaskStatus value (e.g. 'pending')
+                # and it wasn't in DB_TO_PYTHON_STATUS_MAP, it might still be a valid key.
+                # However, the current final_stats is keyed by PythonTaskStatus.value,
+                # so we only add if the string (after potential mapping) is a valid enum value.
+                # This means unknown DB statuses are effectively ignored if they don't map to a Python one.
         
-        # The loop for status_enum_member was to ensure all PythonTaskStatus keys exist.
-        # The above logic correctly maps DB keys to Python enum values.
-        # The final_stats dictionary is initialized with all PythonTaskStatus values set to 0.
-        # So, any status not present in the DB query result will remain 0.
         return final_stats
 
     # save_queue is no longer needed as operations are transactional.
