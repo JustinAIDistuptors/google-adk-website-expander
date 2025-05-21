@@ -4,13 +4,15 @@ This document outlines the necessary tasks to bring the Automated Website Expans
 
 ## I. Core Infrastructure & Backend
 
-- [ ] **1.1. Database Implementation:**
-    - [ ] Task: Decide on and implement a robust database system (PostgreSQL is hinted at by `psycopg2-binary`).
+- [x] **1.1. Database Implementation:**
+    - [x] Task: Decide on and implement a robust database system (PostgreSQL is hinted at by `psycopg2-binary`). (Decision: PostgreSQL; schema provided in `schema.sql` for user to apply)
     - [ ] Details:
-        - [ ] Define schema for task queue, content storage (SEO data, generated content, assembled pages), agent states, and potentially logging/monitoring.
-        - [ ] Refactor `src/utils/queue_manager.py` to use the database instead of JSON files.
-        - [ ] Refactor data loading/saving in agents (Content Generator, Page Assembler, Publisher) to use the database.
-        - [ ] Update `scripts/init_data.py` to initialize/migrate the database schema and load initial data into the database.
+        - [x] Define schema for task queue, content storage (SEO data, generated content, assembled pages), agent states, and potentially logging/monitoring. (Saved as `schema.sql`)
+        - [x] Refactor `src/utils/queue_manager.py` to use the database instead of JSON files. (Code saved; unit tests designed and saved in `tests/test_queue_manager.py`)
+        - [x] Refactor data loading/saving in agents (Content Generator, Page Assembler, Publisher, SeoResearchAgent) to use the database. (Code saved for all mentioned agents)
+        - [x] Update `scripts/init_data.py` to initialize/migrate the database schema and load initial data into the database. (Code saved)
+        - [ ] Unit tests for other refactored agents (ContentGenerator, PageAssembler, Publisher, SeoResearchAgent) implemented and passing.
+        - [ ] Integration testing: Full end-to-end test of database interaction by running the main application flow (Pending user action).
 
 - [ ] **1.2. Backend API Development (Optional but Recommended for UI/External Programmatic Access):**
     - [ ] Task: Design and develop a FastAPI (or similar) backend API.
